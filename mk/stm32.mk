@@ -15,8 +15,6 @@
 vpath %.c $(ROOT)/lib
 OBJS += $(LIB_OBJS)
 
-OPENCM3_DIR=/home/mj/stm/libopencm3
-DEVICE=stm32f103x8
 
 .PHONY: all
 all:: $(BINARY).elf

@@ -163,12 +163,12 @@ void modbus_init(void)
 
 void MODBUS_USART_ISR(void)
 {
-	u32 status = USART_SR(MODBUS_USART);
+	u32 status = USART_ISR(MODBUS_USART);
 
-	if (status & USART_SR_RXNE) {
+	if (status & USART_ISR_RXNE) {
 		uint ch = usart_recv(MODBUS_USART);
 		if (state == STATE_RX) {
-			if (status & (USART_SR_FE | USART_SR_ORE | USART_SR_NE)) {
+			if (status & (USART_ISR_FE | USART_ISR_ORE | USART_ISR_NF | USART_ISR_PE)) {
 				rx_bad = 1;
 			} else if (rx_size < MODBUS_RX_BUFSIZE) {
 				if (!rx_size)
@@ -185,7 +185,7 @@ void MODBUS_USART_ISR(void)
 	}
 
 	if (state == STATE_TX) {
-		if (status & USART_SR_TXE) {
+		if (status & USART_ISR_TXE) {
 			if (tx_pos < tx_size) {
 				usart_send(MODBUS_USART, tx_buf[tx_pos++]);
 			} else {
@@ -197,7 +197,7 @@ void MODBUS_USART_ISR(void)
 			}
 		}
 	} else if (state == STATE_TX_LAST) {
-		if (status & USART_SR_TC) {
+		if (status & USART_ISR_TC) {
 			// Transfer of the last byte is complete. Release the bus.
 			USART_CR1(MODBUS_USART) &= ~USART_CR1_TCIE;
 			tx_done();
