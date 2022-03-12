@@ -2,7 +2,8 @@
 #
 # Parameters:
 #
-#	ROOT			path to root of the repository
+#	STM32LIB		path to root of the stm32lib
+#	OPENCM3_DIR		path to root of libopencm3
 #	BINARY			binary to build (without extension)
 #	OBJS			list of object files
 #	LIB_OBJS		list of library object files
@@ -12,10 +13,9 @@
 #	MAX_SIZE		complain if the built firmware exceeds this size
 #
 
-vpath %.c $(ROOT)/lib
+vpath %.c $(STM32LIB)/lib
 OBJS += $(LIB_OBJS)
 
-OPENCM3_DIR=/home/mj/stm/libopencm3
 DEVICE=stm32f103x8
 
 .PHONY: all
@@ -65,7 +65,7 @@ TGT_CFLAGS	+= $(ARCH_FLAGS)
 TGT_CFLAGS	+= -Wall -Wextra -Wshadow -Wimplicit-function-declaration
 TGT_CFLAGS	+= -Wredundant-decls -Wmissing-prototypes -Wstrict-prototypes -Wno-parentheses
 TGT_CFLAGS	+= -fno-common -ffunction-sections -fdata-sections
-TGT_CFLAGS	+= -I. -I$(ROOT)/lib
+TGT_CFLAGS	+= -I. -I$(STM32LIB)/lib
 
 TGT_CPPFLAGS	+= -MD
 
@@ -110,12 +110,12 @@ all:: $(BINARY).dfu
 	@printf "  FLASH  $<\n"
 	$(Q)dfu-util $(DFU_ARGS) -D $<
 
-%.dfu: %.bin $(ROOT)/tools/dfu-sign
+%.dfu: %.bin $(STM32LIB)/tools/dfu-sign
 	@printf "  SIGN    $< -> $@\n"
-	$(Q)$(ROOT)/tools/dfu-sign $< $@
+	$(Q)$(STM32LIB)/tools/dfu-sign $< $@
 
-$(ROOT)/tools/dfu-sign:
-	make -C $(ROOT)/tools
+$(STM32LIB)/tools/dfu-sign:
+	make -C $(STM32LIB)/tools
 
 # For the STM32duino-bootloader, we used:
 #%.flash: %.bin
@@ -132,11 +132,11 @@ BOOT_SERIAL ?= /dev/ttyUSB0
 
 %.flash: %.bin
 	@printf "  FLASH  $<\n"
-	$(Q)$(ROOT)/bin/stm32flash $(BOOT_SERIAL) -i 'dtr,-dtr' -w $< -g 0
+	$(Q)stm32flash $(BOOT_SERIAL) -i 'dtr,-dtr' -w $< -g 0
 
 .PHONY: reset
 reset: all
-	$(Q)$(ROOT)/bin/stm32flash $(BOOT_SERIAL) -i 'dtr,-dtr' -g 0
+	$(Q)stm32flash $(BOOT_SERIAL) -i 'dtr,-dtr' -g 0
 
 else
 
@@ -144,11 +144,11 @@ all:: $(BINARY).bin
 
 %.flash: %.bin
 	@printf "  FLASH  $<\n"
-	$(Q)$(ROOT)/bin/st-flash write $(*).bin 0x8000000
+	$(Q)st-flash write $(*).bin 0x8000000
 
 .PHONY: reset
 reset:
-	$(ROOT)/bin/st-flash reset
+	st-flash reset
 
 endif
 endif
