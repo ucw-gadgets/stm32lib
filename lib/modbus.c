@@ -74,6 +74,7 @@
 #else
 #define DEBUG(xxx, ...) do { } while (0)
 #endif
+
 /*** State ***/
 
 enum mb_state {
