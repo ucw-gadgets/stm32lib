@@ -365,24 +365,31 @@ static void reset_peripherals(void)
 static void configure_hardware(void)
 {
 	rcc_periph_clock_enable(RCC_GPIOA);
+	rcc_periph_clock_enable(RCC_GPIOB);
 	rcc_periph_clock_enable(RCC_GPIOC);
 	rcc_periph_clock_enable(RCC_USB);
 	rcc_periph_clock_enable(RCC_CRC);
 
 #ifdef DEBUG_USART
-	// Currently, only USART1 is supported
+#if DEBUG_USART == USART1
 	rcc_periph_clock_enable(RCC_USART1);
-	rcc_periph_reset_pulse(RST_USART1);
 	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO9);
-
-	usart_set_baudrate(USART1, 115200);
-	usart_set_databits(USART1, 8);
-	usart_set_stopbits(USART1, USART_STOPBITS_1);
-	usart_set_mode(USART1, USART_MODE_TX);
-	usart_set_parity(USART1, USART_PARITY_NONE);
-	usart_set_flow_control(USART1, USART_FLOWCONTROL_NONE);
-
-	usart_enable(USART1);
+#elif DEBUG_USART == USART2
+	rcc_periph_clock_enable(RCC_USART2);
+	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO2);
+#elif DEBUG_USART == USART3
+	rcc_periph_clock_enable(RCC_USART3);
+	gpio_set_mode(GPIOB, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_ALTFN_PUSHPULL, GPIO10);
+#else
+#error "Unknown USART for debugging"
+#endif
+	usart_set_baudrate(DEBUG_USART, 115200);
+	usart_set_databits(DEBUG_USART, 8);
+	usart_set_stopbits(DEBUG_USART, USART_STOPBITS_1);
+	usart_set_mode(DEBUG_USART, USART_MODE_TX);
+	usart_set_parity(DEBUG_USART, USART_PARITY_NONE);
+	usart_set_flow_control(DEBUG_USART, USART_FLOWCONTROL_NONE);
+	usart_enable(DEBUG_USART);
 #endif
 
 #ifdef DEBUG_LED_BLUEPILL
