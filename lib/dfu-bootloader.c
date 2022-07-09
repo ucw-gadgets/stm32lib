@@ -404,6 +404,8 @@ static void configure_hardware(void)
 	systick_counter_enable();
 }
 
+#ifndef BOOTLOADER_CUSTOM_HW_INIT
+
 static void usb_disconnect(void)
 {
 	gpio_set_mode(GPIOA, GPIO_MODE_OUTPUT_50_MHZ, GPIO_CNF_OUTPUT_OPENDRAIN, GPIO11 | GPIO12);
@@ -413,6 +415,8 @@ static void usb_disconnect(void)
 			;
 	}
 }
+
+#endif
 
 int main(void)
 {
@@ -428,7 +432,11 @@ int main(void)
 
 	DEBUG("DFU: Started (SN %s)\n", usb_serial_number);
 
+#ifdef BOOTLOADER_CUSTOM_HW_INIT
+	custom_hw_init();
+#else
 	usb_disconnect();
+#endif
 
 	DEBUG("DFU: Ready\n");
 	debug_led(0);
