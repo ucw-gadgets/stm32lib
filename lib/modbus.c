@@ -6,6 +6,7 @@
 
 #include "util.h"
 #include "modbus.h"
+#include "modbus-proto.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -346,35 +347,6 @@ static bool check_frame(void)
 	return true;
 }
 
-enum mb_function {
-	FUNC_READ_COILS = 0x01,
-	FUNC_READ_DISCRETE_INPUTS = 0x02,
-	FUNC_READ_HOLDING_REGISTERS = 0x03,
-	FUNC_READ_INPUT_REGISTERS = 0x04,
-	FUNC_WRITE_SINGLE_COIL = 0x05,
-	FUNC_WRITE_SINGLE_REGISTER = 0x06,
-	FUNC_READ_EXCEPTION_STATUS = 0x07,
-	FUNC_DIAGNOSTICS = 0x08,
-	FUNC_GET_COMM_EVENT_COUNTER = 0x0b,
-	FUNC_GET_COMM_EVENT_LOG = 0x0c,
-	FUNC_WRITE_MULTIPLE_COILS = 0x0f,
-	FUNC_WRITE_MULTIPLE_REGISTERS = 0x10,
-	FUNC_REPORT_SLAVE_ID = 0x11,
-	FUNC_READ_FILE_RECORD = 0x14,
-	FUNC_WRITE_FILE_RECORD = 0x15,
-	FUNC_MASK_WRITE_REGISTER = 0x16,
-	FUNC_READ_WRITE_MULTIPLE_REGISTERS = 0x17,
-	FUNC_READ_FIFO_QUEUE = 0x18,
-	FUNC_ENCAPSULATED_INTERFACE_TRANSPORT = 0x2b,
-};
-
-enum mb_error {
-	ERR_ILLEGAL_FUNCTION = 0x01,
-	ERR_ILLEGAL_DATA_ADDRESS = 0x02,
-	ERR_ILLEGAL_DATA_VALUE = 0x03,
-	ERR_SLAVE_DEVICE_FAILURE = 0x04,
-};
-
 static uint read_remains(void)
 {
 	return rx_frame_end - rx_frame;
@@ -420,18 +392,18 @@ static void report_error(byte code)
 static void func_read_bits(bool coils)
 {
 	if (read_remains() < 4)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	u16 start = read_u16();
 	u16 count = read_u16();
 
 	uint bytes = (count+7) / 8;
 	if (!body_fits(1 + bytes))
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	for (u16 i = 0; i < count; i++)
 		if (!(coils ? modbus_check_coil : modbus_check_discrete_input)(start + i))
-			return report_error(ERR_ILLEGAL_DATA_ADDRESS);
+			return report_error(MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 
 	write_byte(bytes);
 	for (u16 i = 0; i < bytes; i++) {
@@ -448,18 +420,18 @@ static void func_read_bits(bool coils)
 static void func_read_registers(byte holding)
 {
 	if (read_remains() < 4)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	u16 start = read_u16();
 	u16 count = read_u16();
 
 	uint bytes = 2*count;
 	if (!body_fits(1 + bytes))
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	for (u16 i = 0; i < count; i++)
 		if (!(holding ? modbus_check_holding_register : modbus_check_input_register)(start + i))
-			return report_error(ERR_ILLEGAL_DATA_ADDRESS);
+			return report_error(MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 
 	// FIXME: Reporting of slave failures?
 	write_byte(bytes);
@@ -470,15 +442,15 @@ static void func_read_registers(byte holding)
 static void func_write_single_coil(void)
 {
 	if (read_remains() < 4)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	u16 addr = read_u16();
 	u16 value = read_u16();
 
 	if (!modbus_check_coil(addr))
-		return report_error(ERR_ILLEGAL_DATA_ADDRESS);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 	if (value != 0x0000 && value != 0xff00)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	modbus_set_coil(addr, value);
 
@@ -489,13 +461,13 @@ static void func_write_single_coil(void)
 static void func_write_single_register(void)
 {
 	if (read_remains() < 4)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	u16 addr = read_u16();
 	u16 value = read_u16();
 
 	if (!modbus_check_holding_register(addr))
-		return report_error(ERR_ILLEGAL_DATA_ADDRESS);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 
 	modbus_set_holding_register(addr, value);
 
@@ -506,18 +478,18 @@ static void func_write_single_register(void)
 static void func_write_multiple_coils(void)
 {
 	if (read_remains() < 5)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	u16 start = read_u16();
 	u16 count = read_u16();
 	byte bytes = read_byte();
 
 	if (read_remains() < bytes || bytes != (count+7) / 8)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	for (u16 i = 0; i < count; i++)
 		if (!modbus_check_coil(start + i))
-			return report_error(ERR_ILLEGAL_DATA_ADDRESS);
+			return report_error(MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 
 	for (u16 i = 0; i < count; i++)
 		modbus_set_coil(start + i, rx_frame[i/8] & (1U << (i%8)));
@@ -529,18 +501,18 @@ static void func_write_multiple_coils(void)
 static void func_write_multiple_registers(void)
 {
 	if (read_remains() < 5)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	u16 start = read_u16();
 	u16 count = read_u16();
 	byte bytes = read_byte();
 
 	if (read_remains() < bytes || bytes != 2*count)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	for (u16 i = 0; i < count; i++)
 		if (!modbus_check_holding_register(start + i))
-			return report_error(ERR_ILLEGAL_DATA_ADDRESS);
+			return report_error(MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 
 	for (u16 i = 0; i < count; i++)
 		modbus_set_holding_register(start + i, read_u16());
@@ -552,14 +524,14 @@ static void func_write_multiple_registers(void)
 static void func_mask_write_register(void)
 {
 	if (read_remains() < 6)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	u16 addr = read_u16();
 	u16 and_mask = read_u16();
 	u16 or_mask = read_u16();
 
 	if (!modbus_check_holding_register(addr))
-		return report_error(ERR_ILLEGAL_DATA_ADDRESS);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 
 	u16 reg = modbus_get_holding_register(addr);
 	reg = (reg & and_mask) | (or_mask & ~and_mask);
@@ -573,7 +545,7 @@ static void func_mask_write_register(void)
 static void func_read_write_multiple_registers(void)
 {
 	if (read_remains() < 9)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	u16 read_start = read_u16();
 	u16 read_count = read_u16();
@@ -582,19 +554,19 @@ static void func_read_write_multiple_registers(void)
 	byte write_bytes = read_byte();
 
 	if (read_remains() < write_bytes || write_bytes != 2*write_count)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	for (u16 i = 0; i < read_count; i++)
 		if (!modbus_check_holding_register(read_start + i))
-			return report_error(ERR_ILLEGAL_DATA_ADDRESS);
+			return report_error(MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 
 	for (u16 i = 0; i < write_count; i++)
 		if (!modbus_check_holding_register(write_start + i))
-			return report_error(ERR_ILLEGAL_DATA_ADDRESS);
+			return report_error(MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 
 	byte read_bytes = 2*write_count;
 	if (!body_fits(1 + read_bytes))
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	for (u16 i = 0; i < write_count; i++)
 		modbus_set_holding_register(write_start + i, read_u16());
@@ -607,8 +579,8 @@ static void func_read_write_multiple_registers(void)
 static void func_encapsulated_interface_transport(void)
 {
 	if (read_remains() < 3 ||
-	    read_byte() != 0x0e)
-		return report_error(ERR_ILLEGAL_DATA_VALUE);
+	    read_byte() != MODBUS_EIT_READ_DEVICE_IDENT)
+		return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 
 	byte action = read_byte();
 	byte id = read_byte();
@@ -628,11 +600,11 @@ static void func_encapsulated_interface_transport(void)
 		case 4:
 			// Individual access
 			if (id >= MODBUS_ID_MAX || !modbus_id_strings[id])
-				return report_error(ERR_ILLEGAL_DATA_ADDRESS);
+				return report_error(MODBUS_ERR_ILLEGAL_DATA_ADDRESS);
 			range_min = range_max = id;
 			break;
 		default:
-			return report_error(ERR_ILLEGAL_DATA_VALUE);
+			return report_error(MODBUS_ERR_ILLEGAL_DATA_VALUE);
 	}
 
 	if (action != 4) {
@@ -691,41 +663,41 @@ static void process_frame(void)
 	pending_error = 0;
 
 	switch (func) {
-		case FUNC_READ_COILS:
+		case MODBUS_FUNC_READ_COILS:
 			func_read_bits(true);
 			break;
-		case FUNC_READ_DISCRETE_INPUTS:
+		case MODBUS_FUNC_READ_DISCRETE_INPUTS:
 			func_read_bits(false);
 			break;
-		case FUNC_READ_HOLDING_REGISTERS:
+		case MODBUS_FUNC_READ_HOLDING_REGISTERS:
 			func_read_registers(true);
 			break;
-		case FUNC_READ_INPUT_REGISTERS:
+		case MODBUS_FUNC_READ_INPUT_REGISTERS:
 			func_read_registers(false);
 			break;
-		case FUNC_WRITE_SINGLE_COIL:
+		case MODBUS_FUNC_WRITE_SINGLE_COIL:
 			func_write_single_coil();
 			break;
-		case FUNC_WRITE_SINGLE_REGISTER:
+		case MODBUS_FUNC_WRITE_SINGLE_REGISTER:
 			func_write_single_register();
 			break;
-		case FUNC_WRITE_MULTIPLE_COILS:
+		case MODBUS_FUNC_WRITE_MULTIPLE_COILS:
 			func_write_multiple_coils();
 			break;
-		case FUNC_WRITE_MULTIPLE_REGISTERS:
+		case MODBUS_FUNC_WRITE_MULTIPLE_REGISTERS:
 			func_write_multiple_registers();
 			break;
-		case FUNC_MASK_WRITE_REGISTER:
+		case MODBUS_FUNC_MASK_WRITE_REGISTER:
 			func_mask_write_register();
 			break;
-		case FUNC_READ_WRITE_MULTIPLE_REGISTERS:
+		case MODBUS_FUNC_READ_WRITE_MULTIPLE_REGISTERS:
 			func_read_write_multiple_registers();
 			break;
-		case FUNC_ENCAPSULATED_INTERFACE_TRANSPORT:
+		case MODBUS_FUNC_ENCAPSULATED_INTERFACE_TRANSPORT:
 			func_encapsulated_interface_transport();
 			break;
 		default:
-			report_error(ERR_ILLEGAL_FUNCTION);
+			report_error(MODBUS_ERR_ILLEGAL_FUNCTION);
 	}
 
 	// Is there a deferred error pending?
@@ -738,5 +710,5 @@ static void process_frame(void)
 
 void modbus_slave_error(void)
 {
-	pending_error = ERR_SLAVE_DEVICE_FAILURE;
+	pending_error = MODBUS_ERR_SLAVE_DEVICE_FAILURE;
 }
