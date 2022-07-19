@@ -11,6 +11,7 @@
 #include <stddef.h>
 #include <string.h>
 
+#include <libopencm3/cm3/cortex.h>
 #include <libopencm3/cm3/nvic.h>
 #include <libopencm3/stm32/gpio.h>
 #include <libopencm3/stm32/usart.h>
@@ -67,6 +68,17 @@
 #endif
 #endif
 
+// Inter-frame gap in microseconds
+#ifndef MODBUS_RX_GAP
+#if MODBUS_BAUD_RATE <= 19200
+// For low baud rates, the standard specifies 3.5 character times
+#define MODBUS_RX_GAP (1000000*11*7/2/MODBUS_BAUD_RATE)
+#else
+// For high rates, the gap is fixed to 1750 μs
+#define MODBUS_RX_GAP 1750
+#endif
+#endif
+
 // Debugging
 // #define MODBUS_DEBUG
 
@@ -82,6 +94,7 @@ enum mb_state {
 	STATE_RX,
 	STATE_RX_DONE,
 	STATE_PROCESSING,
+	STATE_GAP,
 	STATE_TX,
 	STATE_TX_LAST,
 	STATE_TX_DONE,
@@ -119,6 +132,13 @@ static void rx_done(void)
 {
 	state = STATE_RX_DONE;
 	usart_disable_rx_interrupt(MODBUS_USART);
+}
+
+static void tx_gap_init(void)
+{
+	timer_set_period(MODBUS_TIMER, (MODBUS_RX_GAP > MODBUS_RX_TIMEOUT ? MODBUS_RX_GAP - MODBUS_RX_TIMEOUT : 1));
+	timer_generate_event(MODBUS_TIMER, TIM_EGR_UG);
+	timer_enable_counter(MODBUS_TIMER);
 }
 
 static void tx_init(void)
@@ -214,6 +234,8 @@ void MODBUS_TIMER_ISR(void)
 		TIM_SR(MODBUS_TIMER) &= ~TIM_SR_UIF;
 		if (state == STATE_RX)
 			rx_done();
+		else if (state == STATE_GAP)
+			tx_init();
 	}
 }
 
@@ -232,9 +254,20 @@ void modbus_loop(void)
 
 	if (rx_buf[0] == MODBUS_OUR_ADDRESS) {
 		// Frame addressed to us: process and reply
+		tx_gap_init();
 		process_frame();
 		DEBUG("MODBUS: > status=%02x len=%u\n", tx_buf[1], tx_size);
-		tx_init();
+		CM_ATOMIC_BLOCK() {
+			if (TIM_CR1(MODBUS_TIMER) & TIM_CR1_CEN) {
+				// The timer is still running, so let it handle the start of transmission.
+				// Even if it expires just now, the interrupt is deferred.
+				state = STATE_GAP;
+			}
+		}
+		if (state == STATE_PROCESSING) {
+			// Interrupt already expired, so fire up transmission from here.
+			tx_init();
+		}
 	} else if (rx_buf[0] == 0x00) {
 		// Broadcast frame: process, but do not reply
 		process_frame();
