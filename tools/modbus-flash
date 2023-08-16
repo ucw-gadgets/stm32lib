@@ -1,0 +1,220 @@
+#!/usr/bin/env python3
+# A simple utility for flashing firmware via UCW MODBUS Bootloader
+
+import argparse
+import logging
+from pymodbus.client.sync import ModbusTcpClient, ModbusSerialClient
+from pymodbus.exceptions import ConnectionException
+from pymodbus.pdu import ExceptionResponse, ModbusExceptions
+import sys
+import time
+
+
+BL_INPUT_MAGIC_HI = 0xe000
+BL_INPUT_MAGIC_LO = 0xe001
+BL_INPUT_LOADER_VERSION = 0xe002
+BL_INPUT_STATUS = 0xe003
+BL_INPUT_VENDOR_ID = 0xe004
+BL_INPUT_DEVICE_ID = 0xe005
+BL_INPUT_SERIAL_NUMBER = 0xe006
+BL_INPUT_BLOCK_SIZE = 0xe00c
+BL_INPUT_FLASH_SIZE = 0xe00d
+
+BL_HOLD_COMMAND = 0xe000
+BL_HOLD_BLOCK_NUMBER = 0xe001
+BL_HOLD_BLOCK_DATA = 0xe100
+
+BL_MAGIC_HI = 0x426f
+BL_MAGIC_LO = 0x6f54
+BL_LOADER_VERSION = 0x0001
+
+BL_STATUS_APP = 1
+BL_STATUS_READY = 2
+BL_STATUS_FLASHING = 3
+BL_STATUS_ERROR = 4
+BL_STATUS_CORRUPTED = 5
+BL_STATUS_BOOTING = 6
+
+BL_COMMAND_BOOT = 1
+BL_COMMAND_FLASH_START = 2
+BL_COMMAND_FLASH_END = 3
+BL_COMMAND_FLASH_BLOCK = 4
+BL_COMMAND_EXIT_APP = 5
+
+status_to_string = {
+    BL_STATUS_APP: "application",
+    BL_STATUS_READY: "ready",
+    BL_STATUS_FLASHING: "flashing",
+    BL_STATUS_ERROR: "error",
+    BL_STATUS_CORRUPTED: "corrupted",
+    BL_STATUS_BOOTING: "booting",
+}
+
+
+def die(msg: str):
+    print(msg, file=sys.stderr)
+    sys.exit(1)
+
+
+def check_modbus_error(resp):
+    if resp.isError():
+        if isinstance(resp, ExceptionResponse):
+            die(f'MODBUS error: {ModbusExceptions.decode(resp.exception_code)}')
+        else:
+            die(f'MODBUS error: {resp}')
+
+
+class Device:
+    addr: int
+    loader_ver: int
+    status: int
+    status_str: str
+    vendor_id: int
+    device_id: int
+    serial: str
+    block_size: int
+    flash_size: int
+
+    def get_status(self):
+        rr = modbus.read_input_registers(BL_INPUT_STATUS, 1, unit=self.addr)
+        check_modbus_error(rr)
+        self.status = rr.registers[0]
+        self.status_string = status_to_string.get(self.status, f'unknown({self.status})')
+        if args.verbose > 0:
+            print(f'< Status: {self.status_string}')
+
+    def send_command(self, cmd, get_status=True):
+        if args.verbose > 0:
+            print(f'> Command: {cmd}')
+        rr = modbus.write_register(BL_HOLD_COMMAND, cmd, unit=self.addr)
+        check_modbus_error(rr)
+        if get_status:
+            self.get_status()
+
+    def setup(self, try_exit_app=True):
+        rr = modbus.read_input_registers(BL_INPUT_MAGIC_HI, 3, unit=self.addr)
+        check_modbus_error(rr)
+
+        magic_hi, magic_lo, self.loader_ver = rr.registers
+        if magic_hi != BL_MAGIC_HI or magic_lo != BL_MAGIC_LO:
+            die('Invalid bootloader magic numbers')
+
+        print(f'Protocol version: {self.loader_ver:04x}')
+        if self.loader_ver != BL_LOADER_VERSION:
+            die('Unsupported protocol version')
+
+        if try_exit_app:
+            self.get_status()
+            if self.status == BL_STATUS_APP:
+                print('Application mode detected, requesting reboot')
+                self.send_command(BL_COMMAND_EXIT_APP, get_status=False)
+                time.sleep(3)
+                return self.setup(try_exit_app=False)
+
+        rr = modbus.read_input_registers(BL_INPUT_VENDOR_ID, BL_INPUT_FLASH_SIZE - BL_INPUT_VENDOR_ID + 1, unit=self.addr)
+        check_modbus_error(rr)
+
+        self.vendor_id, self.device_id = rr.registers[:2]
+        print(f'Device ID:        {self.vendor_id:04x} / {self.device_id:04x}')
+
+        serial_bytes = []
+        for i in range(6):
+            a = rr.registers[BL_INPUT_SERIAL_NUMBER - BL_INPUT_STATUS + i]
+            serial_bytes.append(a >> 8)
+            serial_bytes.append(a & 0xff)
+        self.serial = bytes(serial_bytes).decode('us-ascii')
+        print(f'Serial number:    {self.serial}')
+
+        self.block_size, self.flash_size = rr.registers[BL_INPUT_BLOCK_SIZE - BL_INPUT_VENDOR_ID:]
+        print(f'Block size:       {self.block_size} B')
+        print(f'Flash size:       {self.flash_size} KB')
+
+    def flash_file(self, source_file):
+        self.get_status()
+        if self.status not in (BL_STATUS_READY, BL_STATUS_CORRUPTED, BL_STATUS_FLASHING):
+            die(f'Unexpected status: {self.status_string}')
+
+        print('Reading firmware')
+        try:
+            with open(source_file, 'rb') as f:
+                firmware = f.read()
+        except FileNotFoundError:
+            die(f'Cannot find {source_file}')
+
+        # Check and remove DFU trailer
+        if len(firmware) < 16:
+            die('Firmware file too short for trailer to fit')
+        if firmware[-8:-5] != b'UFD':
+            die('Invalid DFU signature in file trailer')
+        firmware = firmware[:-firmware[-5]]
+
+        # Pad firmware to a multiple of block size
+        if len(firmware) % self.block_size != 0:
+            firmware = firmware + bytes(self.block_size - len(firmware) % self.block_size)
+        if len(firmware) > self.flash_size * 1024:
+            die('Firmware too large')
+        num_blocks = len(firmware) // self.block_size
+
+        self.send_command(BL_COMMAND_FLASH_START)
+        assert self.status == BL_STATUS_FLASHING, f'Unexpected status {self.status_str}'
+
+        for i in range(num_blocks):
+            print(f'Flashing block {i} / {num_blocks}')
+            rr = modbus.write_register(BL_HOLD_BLOCK_NUMBER, i, unit=self.addr)
+            check_modbus_error(rr)
+
+            BATCH_SIZE = 16
+            for j in range(0, dev.block_size // 2, BATCH_SIZE):
+                pos = i * self.block_size + 2 * j
+                batch = [firmware[pos + 2 * k] + (firmware[pos + 2 * k + 1] << 8) for k in range(BATCH_SIZE)]
+                rr = modbus.write_registers(BL_HOLD_BLOCK_DATA + j, batch, unit=self.addr)
+                check_modbus_error(rr)
+
+            self.send_command(BL_COMMAND_FLASH_BLOCK)
+            assert self.status == BL_STATUS_FLASHING, f'Unexpected status {self.status_str}'
+
+        print('Committing new firmware')
+        self.send_command(BL_COMMAND_FLASH_END)
+        assert self.status == BL_STATUS_READY, f'Unexpected status {self.status_str}'
+
+        print('Booting')
+        self.send_command(BL_COMMAND_BOOT, get_status=False)
+
+
+parser = argparse.ArgumentParser(description='Flash firmware using UCW MODBUS Bootloader')
+parser.add_argument('-t', '--tcp', help='MODBUS TCP: host name')
+parser.add_argument('-p', '--port', type=int, help='MODBUS TCP: port number')
+parser.add_argument('-r', '--rtu', help='MODBUS RTU: serial device name')
+parser.add_argument('-b', '--baud', type=int, default=19200, help='MODBUS RTU: baud rate (default: 19200)')
+parser.add_argument('-a', '--address', type=int, required=True, help='MODBUS address of the device')
+parser.add_argument('-f', '--flash', metavar='FILE', help='flash a given firmware file (default: show status)')
+parser.add_argument('-v', '--verbose', default=0, action='count', help='increase verbosity')
+
+args = parser.parse_args()
+
+if args.tcp is None and args.rtu is None:
+    parser.error('MODBUS interface not specified')
+
+if args.verbose > 1:
+    logging.basicConfig(level=logging.DEBUG)
+    logging.getLogger('pymodbus').setLevel(level=logging.DEBUG)
+
+try:
+    if args.tcp is not None:
+        modbus = ModbusTcpClient(args.tcp, port=args.port)
+    else:
+        modbus = ModbusSerialClient(method='rtu', port=args.rtu, baudrate=args.baud, parity='E')
+
+    modbus.connect()
+
+    dev = Device()
+    dev.addr = args.address
+    dev.setup()
+
+    if args.flash:
+        dev.flash_file(args.flash)
+    else:
+        dev.get_status()
+
+except ConnectionException as e:
+    die(str(e))
