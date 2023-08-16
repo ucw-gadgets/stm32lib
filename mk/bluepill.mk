@@ -103,6 +103,7 @@ clean:
 	$(Q)rm -f *.elf *.bin *.dfu *.o *.d *.map $(LDSCRIPT) $(UCW_LDSCRIPT)
 
 ifdef WITH_DFU_FLASH
+HAVE_FLASH := 1
 
 all:: $(BINARY).dfu
 
@@ -110,21 +111,15 @@ all:: $(BINARY).dfu
 	@printf "  FLASH  $<\n"
 	$(Q)dfu-util $(DFU_ARGS) -D $<
 
-%.dfu: %.bin $(STM32LIB)/tools/dfu-sign
-	@printf "  SIGN    $< -> $@\n"
-	$(Q)$(STM32LIB)/tools/dfu-sign $< $@
-
-$(STM32LIB)/tools/dfu-sign:
-	make -C $(STM32LIB)/tools
-
 # For the STM32duino-bootloader, we used:
 #%.flash: %.bin
 #	@printf "  FLASH  $<\n"
 #	$(Q)dfu-util -a2 -D $(*).bin
 
-else
+endif
 
 ifdef WITH_SERIAL_FLASH
+HAVE_FLASH := 1
 
 all:: $(BINARY).bin
 
@@ -138,7 +133,20 @@ BOOT_SERIAL ?= /dev/ttyUSB0
 reset: all
 	$(Q)stm32flash $(BOOT_SERIAL) -i 'dtr,-dtr' -g 0
 
-else
+endif
+
+ifdef WITH_MODBUS_FLASH
+HAVE_FLASH := 1
+
+all:: $(BINARY).dfu
+
+%.flash: %.dfu
+	@printf "  FLASH  $<\n"
+	$(Q)$(STM32LIB)/tools/modbus-flash $(MODBUS_FLASH_ARGS) --flash $<
+
+endif
+
+ifndef HAVE_FLASH
 
 all:: $(BINARY).bin
 
@@ -151,7 +159,13 @@ reset:
 	st-flash reset
 
 endif
-endif
+
+%.dfu: %.bin $(STM32LIB)/tools/dfu-sign
+	@printf "  SIGN    $< -> $@\n"
+	$(Q)$(STM32LIB)/tools/dfu-sign $< $@
+
+$(STM32LIB)/tools/dfu-sign:
+	make -C $(STM32LIB)/tools
 
 .SECONDEXPANSION:
 .SECONDARY:
