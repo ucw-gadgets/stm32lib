@@ -42,7 +42,7 @@ static byte current_block[BLOCK_SIZE];
 static uint current_block_number;
 
 static uint timeout;
-#define DEFAULT_TIMEOUT 50000000   // ms
+#define DEFAULT_TIMEOUT 5000   // ms
 
 static char usb_serial_number[13];
 static uint flash_size_kb;
