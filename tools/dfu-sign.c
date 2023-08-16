@@ -205,7 +205,7 @@ static void build_trailer(void)
 	struct dfu_trailer *t = trailer;
 
 	t->trailer_len = sizeof(struct dfu_trailer);
-	memcpy(t->dfu_sig, "ufd", 3);
+	memcpy(t->dfu_sig, "UFD", 3);
 	put_u16_le(&t->dfu_version, 0x0100);
 	put_u16_le(&t->vendor_id, 0xffff);		// fixme
 	put_u16_le(&t->product_id, 0xffff);
