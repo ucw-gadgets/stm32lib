@@ -15,6 +15,10 @@
 static char *in_name;
 static char *out_name;
 
+static uint id_vendor = 0xffff;
+static uint id_device = 0xffff;
+static uint id_fw_ver = 0xffff;
+
 static const struct opt_section options = {
 	OPT_ITEMS {
 		OPT_HELP("A simple tool for signing firmware for UCW STM32 DFU bootloader."),
@@ -23,6 +27,9 @@ static const struct opt_section options = {
 		OPT_STRING(OPT_POSITIONAL(2), NULL, out_name, OPT_REQUIRED, ""),
 		OPT_HELP(""),
 		OPT_HELP("Options:"),
+		OPT_UINT(0, "vendor", id_vendor, OPT_REQUIRED_VALUE, "0xid\tvendor ID"),
+		OPT_UINT(0, "device", id_device, OPT_REQUIRED_VALUE, "0xid\tdevice ID"),
+		OPT_UINT(0, "fw-version", id_fw_ver, OPT_REQUIRED_VALUE, "0xver\tfirmware version"),
 		OPT_HELP_OPTION,
 		OPT_END
 	}
@@ -207,9 +214,9 @@ static void build_trailer(void)
 	t->trailer_len = sizeof(struct dfu_trailer);
 	memcpy(t->dfu_sig, "UFD", 3);
 	put_u16_le(&t->dfu_version, 0x0100);
-	put_u16_le(&t->vendor_id, 0xffff);		// fixme
-	put_u16_le(&t->product_id, 0xffff);
-	put_u16_le(&t->fw_version, 0xffff);
+	put_u16_le(&t->vendor_id, id_vendor);
+	put_u16_le(&t->product_id, id_device);
+	put_u16_le(&t->fw_version, id_fw_ver);
 	put_u32_le(&t->crc, dfu_crc(firmware, firmware_len + 4 + t->trailer_len - 4));
 }
 
