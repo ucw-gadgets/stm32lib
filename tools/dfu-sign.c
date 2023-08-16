@@ -1,7 +1,7 @@
 /*
  *	Sign firmware for our DFU boot-loader
  *
- *	(c) 2020 Martin Mareš <mj@ucw.cz>
+ *	(c) 2020--2023 Martin Mareš <mj@ucw.cz>
  */
 
 #include <ucw/lib.h>
@@ -174,8 +174,9 @@ static void read_fw(void)
 	if (fd < 0)
 		die("Cannot open %s: %m", in_name);
 
-	firmware_len = lseek(fd, 0, SEEK_END);
+	uint orig_firmware_len = lseek(fd, 0, SEEK_END);
 	lseek(fd, 0, SEEK_SET);
+	firmware_len = orig_firmware_len;
 	while (firmware_len % 4)
 		firmware_len++;
 
@@ -183,7 +184,7 @@ static void read_fw(void)
 	header = (struct fw_header *)firmware;
 	trailer = (struct dfu_trailer *)(firmware + firmware_len + 4);
 
-	if (read(fd, firmware, firmware_len) != (int) firmware_len)
+	if (read(fd, firmware, orig_firmware_len) != (int) orig_firmware_len)
 		die("Error reading %s: %m", in_name);
 
 	close(fd);
