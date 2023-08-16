@@ -1,7 +1,7 @@
 /*
  *	Generic MODBUS Library for STM32
  *
- *	(c) 2019 Martin Mareš <mj@ucw.cz>
+ *	(c) 2019--2023 Martin Mareš <mj@ucw.cz>
  */
 
 #include "util.h"
@@ -81,11 +81,18 @@
 
 // Debugging
 // #define MODBUS_DEBUG
+// #define MODBUS_DEBUG_ISR
 
 #ifdef MODBUS_DEBUG
 #define DEBUG debug_printf
 #else
 #define DEBUG(xxx, ...) do { } while (0)
+#endif
+
+#ifdef MODBUS_DEBUG_ISR
+#define DEBUG_ISR(c) debug_putc(c)
+#else
+#define DEBUG_ISR(c) do { } while (0)
 #endif
 
 /*** State ***/
@@ -120,6 +127,7 @@ static void process_frame(void);
 
 static void rx_init(void)
 {
+	DEBUG_ISR('<');
 	state = STATE_RX;
 	rx_size = 0;
 	rx_bad = 0;
@@ -130,6 +138,7 @@ static void rx_init(void)
 
 static void rx_done(void)
 {
+	DEBUG_ISR('>');
 	state = STATE_RX_DONE;
 	usart_disable_rx_interrupt(MODBUS_USART);
 }
@@ -143,6 +152,7 @@ static void tx_gap_init(void)
 
 static void tx_init(void)
 {
+	DEBUG_ISR('[');
 	state = STATE_TX;
 	tx_pos = 0;
 	gpio_set(MODBUS_TXEN_GPIO_PORT, MODBUS_TXEN_GPIO_PIN);
@@ -191,13 +201,16 @@ void MODBUS_USART_ISR(void)
 		uint ch = usart_recv(MODBUS_USART);
 		if (state == STATE_RX) {
 			if (status & (USART_SR_FE | USART_SR_ORE | USART_SR_NE)) {
+				DEBUG_ISR('!');
 				rx_bad = 1;
 			} else if (rx_size < MODBUS_RX_BUFSIZE) {
+				DEBUG_ISR('.');
 				if (!rx_size)
 					modbus_frame_start_hook();
 				rx_buf[rx_size++] = ch;
 			} else {
 				// Frame too long
+				DEBUG_ISR('#');
 				rx_bad = 2;
 			}
 			timer_set_period(MODBUS_TIMER, MODBUS_RX_TIMEOUT);
@@ -210,12 +223,14 @@ void MODBUS_USART_ISR(void)
 		if (status & USART_SR_TXE) {
 			if (tx_pos < tx_size) {
 				usart_send(MODBUS_USART, tx_buf[tx_pos++]);
+				DEBUG_ISR(':');
 			} else {
 				// The transmitter is double-buffered, so at this moment, it is transmitting
 				// the last byte of the frame. Wait until transfer is completed.
 				usart_disable_tx_interrupt(MODBUS_USART);
 				USART_CR1(MODBUS_USART) |= USART_CR1_TCIE;
 				state = STATE_TX_LAST;
+				DEBUG_ISR(']');
 			}
 		}
 	} else if (state == STATE_TX_LAST) {
