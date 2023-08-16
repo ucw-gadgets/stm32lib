@@ -163,7 +163,7 @@ class Device:
             rr = modbus.write_register(BL_HOLD_BLOCK_NUMBER, i, unit=self.addr)
             check_modbus_error(rr)
 
-            BATCH_SIZE = 16
+            BATCH_SIZE = 64
             for j in range(0, dev.block_size // 2, BATCH_SIZE):
                 pos = i * self.block_size + 2 * j
                 batch = [firmware[pos + 2 * k] + (firmware[pos + 2 * k + 1] << 8) for k in range(BATCH_SIZE)]
