@@ -760,3 +760,8 @@ void modbus_slave_error(void)
 {
 	pending_error = MODBUS_ERR_SLAVE_DEVICE_FAILURE;
 }
+
+bool modbus_is_idle(void)
+{
+	return state == STATE_RX && !rx_size;
+}

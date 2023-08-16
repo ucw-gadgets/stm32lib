@@ -1,7 +1,7 @@
 /*
  *	Generic MODBUS Library for STM32
  *
- *	(c) 2019 Martin Mareš <mj@ucw.cz>
+ *	(c) 2019--2023 Martin Mareš <mj@ucw.cz>
  */
 
 #ifndef _MODBUS_H
@@ -12,6 +12,8 @@ void modbus_loop(void);
 
 // If a call-back wants to signal a slave error in the reply
 void modbus_slave_error(void);
+
+bool modbus_is_idle(void);
 
 // Callbacks
 
