@@ -3,7 +3,7 @@
 
 import argparse
 import logging
-from pymodbus.client.sync import ModbusTcpClient, ModbusSerialClient
+from pymodbus.client import ModbusTcpClient, ModbusSerialClient
 from pymodbus.exceptions import ConnectionException
 from pymodbus.pdu import ExceptionResponse, ModbusExceptions
 import sys
@@ -76,7 +76,7 @@ class Device:
     flash_size: int
 
     def get_status(self):
-        rr = modbus.read_input_registers(BL_INPUT_STATUS, 1, unit=self.addr)
+        rr = modbus.read_input_registers(BL_INPUT_STATUS, 1, slave=self.addr)
         check_modbus_error(rr)
         self.status = rr.registers[0]
         self.status_string = status_to_string.get(self.status, f'unknown({self.status})')
@@ -86,13 +86,13 @@ class Device:
     def send_command(self, cmd, get_status=True):
         if args.verbose > 0:
             print(f'> Command: {cmd}')
-        rr = modbus.write_register(BL_HOLD_COMMAND, cmd, unit=self.addr)
+        rr = modbus.write_register(BL_HOLD_COMMAND, cmd, slave=self.addr)
         check_modbus_error(rr)
         if get_status:
             self.get_status()
 
     def setup(self, try_exit_app=True):
-        rr = modbus.read_input_registers(BL_INPUT_MAGIC_HI, 3, unit=self.addr)
+        rr = modbus.read_input_registers(BL_INPUT_MAGIC_HI, 3, slave=self.addr)
         check_modbus_error(rr)
 
         magic_hi, magic_lo, self.loader_ver = rr.registers
@@ -111,7 +111,7 @@ class Device:
                 time.sleep(3)
                 return self.setup(try_exit_app=False)
 
-        rr = modbus.read_input_registers(BL_INPUT_VENDOR_ID, BL_INPUT_FLASH_SIZE - BL_INPUT_VENDOR_ID + 1, unit=self.addr)
+        rr = modbus.read_input_registers(BL_INPUT_VENDOR_ID, BL_INPUT_FLASH_SIZE - BL_INPUT_VENDOR_ID + 1, slave=self.addr)
         check_modbus_error(rr)
 
         self.vendor_id, self.device_id = rr.registers[:2]
@@ -160,14 +160,14 @@ class Device:
 
         for i in range(num_blocks):
             print(f'Flashing block {i} / {num_blocks}')
-            rr = modbus.write_register(BL_HOLD_BLOCK_NUMBER, i, unit=self.addr)
+            rr = modbus.write_register(BL_HOLD_BLOCK_NUMBER, i, slave=self.addr)
             check_modbus_error(rr)
 
             BATCH_SIZE = 64
             for j in range(0, dev.block_size // 2, BATCH_SIZE):
                 pos = i * self.block_size + 2 * j
                 batch = [firmware[pos + 2 * k] + (firmware[pos + 2 * k + 1] << 8) for k in range(BATCH_SIZE)]
-                rr = modbus.write_registers(BL_HOLD_BLOCK_DATA + j, batch, unit=self.addr)
+                rr = modbus.write_registers(BL_HOLD_BLOCK_DATA + j, batch, slave=self.addr)
                 check_modbus_error(rr)
 
             self.send_command(BL_COMMAND_FLASH_BLOCK)
