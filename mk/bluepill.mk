@@ -16,7 +16,7 @@
 vpath %.c $(STM32LIB)/lib
 OBJS += $(LIB_OBJS)
 
-DEVICE=stm32f103x8
+DEVICE?=stm32f103x8
 
 .PHONY: all
 all:: $(BINARY).elf
